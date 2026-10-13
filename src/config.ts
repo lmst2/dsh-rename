@@ -7,7 +7,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
-import { deepFreeze } from '@deepseek-ai/dsh-llm'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 
 /** User-overridable plugin configuration. */
 export interface Config {

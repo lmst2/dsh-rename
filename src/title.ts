@@ -14,7 +14,6 @@ import type { Context } from '@deepseek-ai/cordis'
 import {
   BlockAssembler,
   createUserMessage,
-  deepFreeze,
 } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
@@ -22,9 +21,18 @@ import type {
   GenerateOptions,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ResolvedConfig } from './config.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'dsh-rename': {
+      kind: 'dsh-rename'
+    }
+  }
+}
 
 /** One bounded conversation entry framed for the title model. */
 export interface TranscriptEntry {
@@ -66,7 +74,7 @@ export function textOfContent(content: readonly ContentBlock[]): string {
  */
 export function collectTranscriptEntries(session: Session): TranscriptEntry[] {
   const entries: TranscriptEntry[] = []
-  for (const event of session.events) {
+  for (const event of session.snapshotEvents()) {
     switch (event.type) {
       case 'user/message': {
         if (event.data.source.kind !== 'user') break
@@ -206,7 +214,7 @@ export async function generateSessionTitle(
   const route = resolveRoute(config, session)
   const messages = [createUserMessage({
     content: [{ type: 'text', text: frameTranscript(entries) }],
-    source: { kind: 'plugin', plugin: 'dsh-rename' },
+    source: { kind: 'dsh-rename' },
   })]
   const timeout = AbortSignal.timeout(config.timeoutMs)
   const callSignal = AbortSignal.any([signal, timeout])

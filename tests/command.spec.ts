@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionTitleService from '@deepseek-ai/dsh-session-title'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
@@ -54,7 +55,8 @@ function seededSession(ctx: Context, id = 'rename-session'): Session {
       content: [{ type: 'text', text: '我会先确认 DSH 是否已经内置自动命名，再实现 /rename 命令。' }],
       source: { provider: 'rename-test', model: 'rename-model' },
     }),
-  }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    stream: [],
+  }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return session
@@ -76,6 +78,7 @@ async function mount(
 ): Promise<Mounted> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjections)
   await ctx.plugin(SessionTitleService, {
     fallbackMaxWords: 5,
     fallbackMaxBytes: 40,
@@ -106,6 +109,7 @@ describe('/rename command registration', () => {
   it('rejects a provider/model pair that is only half configured', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjections)
     await ctx.plugin(SessionTitleService, {
       fallbackMaxWords: 5,
       fallbackMaxBytes: 40,
@@ -122,13 +126,13 @@ describe('/rename with an explicit name', () => {
   it('renames immediately without dispatching an auxiliary model call', async () => {
     const { ctx, adapter } = await mount()
     const session = seededSession(ctx, 'rename-explicit')
-    const execution = await ctx.commands.execute(agentFor(session), '/rename  手选会话名  ', new AbortController().signal)
+    const execution = await ctx.commands.execute(agentFor(session), '/rename  手选会话名  ', [], new AbortController().signal)
 
     expect(execution?.result).toMatchObject({
       kind: 'success',
       text: 'Session renamed to "手选会话名".',
     })
-    const title = session.events.findLast(event => event.type === 'session/title')
+    const title = session.snapshotEvents().findLast(event => event.type === 'session/title')
     expect(title?.data).toMatchObject({
       title: '手选会话名',
       messageSeqs: [],
@@ -137,7 +141,7 @@ describe('/rename with an explicit name', () => {
     expect(execution?.result.kind === 'success' && execution.result.sourceEventSeq).toBe(title?.seq)
     expect(adapter.requests).toHaveLength(0)
     // recordInput: false — the durable session/title event owns the payload.
-    const run = session.events.find(event => event.type === 'command/run')
+    const run = session.snapshotEvents().find(event => event.type === 'command/run')
     expect(run?.type === 'command/run' && Object.hasOwn(run.data, 'args')).toBe(false)
   })
 
@@ -145,7 +149,7 @@ describe('/rename with an explicit name', () => {
     const { ctx, adapter } = await mount()
     const session = seededSession(ctx, 'rename-empty')
     // U+200B survives String.trim but normalizes to empty host-side.
-    const execution = await ctx.commands.execute(agentFor(session), `/rename ${'\u200B'}`, new AbortController().signal)
+    const execution = await ctx.commands.execute(agentFor(session), `/rename ${'\u200B'}`, [], new AbortController().signal)
 
     expect(execution?.result).toMatchObject({ kind: 'error' })
     expect(execution?.result.kind === 'error' && execution.result.text).toContain('Usage: /rename [<name>]')
@@ -157,10 +161,10 @@ describe('/rename without a name', () => {
   it('asks the model for a title, renames, and links the command card to the title event', async () => {
     const { ctx, adapter } = await mount()
     const session = seededSession(ctx, 'rename-generated')
-    const execution = await ctx.commands.execute(agentFor(session), '/rename', new AbortController().signal)
+    const execution = await ctx.commands.execute(agentFor(session), '/rename', [], new AbortController().signal)
 
     expect(execution?.result.kind).toBe('success')
-    const title = session.events.findLast(event => event.type === 'session/title')
+    const title = session.snapshotEvents().findLast(event => event.type === 'session/title')
     expect(title?.data).toMatchObject({
       title: '构建会话重命名插件',
       messageSeqs: [],
@@ -187,12 +191,12 @@ describe('/rename without a name', () => {
     const { ctx, adapter } = await mount()
     const session = seededSession(ctx, 'rename-duplicate')
     ctx.sessionTitle.rename(session, '构建会话重命名插件')
-    const before = session.events.filter(event => event.type === 'session/title').length
+    const before = session.snapshotEvents().filter(event => event.type === 'session/title').length
 
-    const execution = await ctx.commands.execute(agentFor(session), '/rename', new AbortController().signal)
+    const execution = await ctx.commands.execute(agentFor(session), '/rename', [], new AbortController().signal)
     expect(execution?.result).toMatchObject({ kind: 'success' })
     expect(execution?.result.kind === 'success' && execution.result.text).toContain('already named')
-    expect(session.events.filter(event => event.type === 'session/title').length).toBe(before)
+    expect(session.snapshotEvents().filter(event => event.type === 'session/title').length).toBe(before)
     expect(adapter.requests).toHaveLength(1)
   })
 
@@ -206,7 +210,7 @@ describe('/rename without a name', () => {
       reason: 'initial',
     })
 
-    const execution = await ctx.commands.execute(agentFor(session), '/rename', new AbortController().signal)
+    const execution = await ctx.commands.execute(agentFor(session), '/rename', [], new AbortController().signal)
     expect(execution?.result.kind).toBe('success')
     expect(logged.requests[0]).toMatchObject({ provider: 'logged-route', model: 'logged-model' })
   })
@@ -214,7 +218,7 @@ describe('/rename without a name', () => {
   it('reports an error result when the session has no conversation text', async () => {
     const { ctx, adapter } = await mount()
     const session = ctx.sessions.create(sid('rename-no-text'))
-    const execution = await ctx.commands.execute(agentFor(session), '/rename', new AbortController().signal)
+    const execution = await ctx.commands.execute(agentFor(session), '/rename', [], new AbortController().signal)
 
     expect(execution?.result).toMatchObject({ kind: 'error' })
     expect(execution?.result.kind === 'error' && execution.result.text).toContain('no conversation text')
@@ -232,7 +236,7 @@ describe('/rename without a name', () => {
       new FailingAdapter(),
     )
     const session = seededSession(ctx, 'rename-provider-failure')
-    const execution = await ctx.commands.execute(agentFor(session), '/rename', new AbortController().signal)
+    const execution = await ctx.commands.execute(agentFor(session), '/rename', [], new AbortController().signal)
 
     expect(execution?.result).toMatchObject({ kind: 'error' })
     expect(execution?.result.kind === 'error' && execution.result.text).toContain('provider exploded')

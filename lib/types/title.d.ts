@@ -13,6 +13,13 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { Session } from '@deepseek-ai/dsh-session';
 import type { ResolvedConfig } from './config.ts';
+declare module '@deepseek-ai/dsh-llm' {
+    interface MessageSourceMap {
+        'dsh-rename': {
+            kind: 'dsh-rename';
+        };
+    }
+}
 /** One bounded conversation entry framed for the title model. */
 export interface TranscriptEntry {
     /** Speaker role, restricted to the two entries collected from the log. */

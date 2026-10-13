@@ -34,7 +34,8 @@ function transcriptSession(ctx: Context, id = 'transcript'): Session {
       ],
       source: { provider: 'mock', model: 'mock' },
     }),
-  }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    stream: [],
+  }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   session.append('turn/start', { turn: 2 })
@@ -67,7 +68,7 @@ describe('collectTranscriptEntries', () => {
     session.append('turn/start', { turn: 3 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'SYNTHETIC CONTEXT' }],
-      source: { kind: 'plugin', plugin: 'dsh-rename' },
+      source: { kind: 'dsh-rename' },
     }), { surfaceOp: 'append' })
     session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
 
